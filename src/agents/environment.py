@@ -124,7 +124,4 @@ class CacheEnv(gym.Env):
         return state
 
     def render(self):
-        if self.render_mode == 'human':
-            metrics = self.cache.get_metrics()
-            print(f"Step: {self.current_step}, Hit Rate: {metrics['hit_rate']:.2%}, "
-                  f"Cache Size: {len(self.cache)}/{self.cache.capacity}")
+        pass
