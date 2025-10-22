@@ -43,5 +43,15 @@ checkpoints/
 logs/
 runs/
 
+# Training artifacts
+*.pth
+*.json
+*.png
+*.jpg
+evaluation_results/
+demo_workload_pattern.png
+
+# Project files
 CLAUDE.md
 README.md
+.gitignore

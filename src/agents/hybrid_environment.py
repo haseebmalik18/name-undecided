@@ -16,7 +16,7 @@ class HybridCacheEnv(gym.Env):
         num_items: int,
         workload_generator,
         episode_length: int = 1000,
-        state_size: int = 20,
+        state_size: int = 30,
         base_policy: str = 'lru',
         rl_weight: float = 0.5,
         alpha: float = 1.0,
@@ -62,12 +62,22 @@ class HybridCacheEnv(gym.Env):
         self.request_history = []
         self.item_to_cache_idx = {}
 
+        self.item_last_access_time = {}
+        self.item_access_trend = {}
+        self.item_recent_frequency = {}
+        self.item_historical_frequency = {}
+
     def reset(self, seed: Optional[int] = None) -> Tuple[np.ndarray, Dict]:
         super().reset(seed=seed)
         self.cache.reset()
         self.current_step = 0
         self.request_history = []
         self.item_to_cache_idx = {}
+
+        self.item_last_access_time = {}
+        self.item_access_trend = {}
+        self.item_recent_frequency = {}
+        self.item_historical_frequency = {}
 
         self.current_request = next(iter(self.workload))
 
@@ -92,7 +102,14 @@ class HybridCacheEnv(gym.Env):
             future_access_penalty = 0.0
             if evicted in self.request_history[-10:]:
                 future_access_penalty = -0.2
+
+            trend = self.item_access_trend.get(evicted, 0.0)
+            if trend > 0.5:
+                reward += -0.3
+
             reward += future_access_penalty
+
+        self._update_temporal_features(self.current_request)
 
         self.request_history.append(self.current_request)
         if len(self.request_history) > 100:
@@ -131,6 +148,22 @@ class HybridCacheEnv(gym.Env):
 
         return scores
 
+    def _update_temporal_features(self, item: int):
+        self.item_last_access_time[item] = self.current_step
+
+        self.item_recent_frequency[item] = self.item_recent_frequency.get(item, 0) + 1
+        self.item_historical_frequency[item] = self.item_historical_frequency.get(item, 0) + 1
+
+        if self.current_step % 100 == 0:
+            for it in list(self.item_recent_frequency.keys()):
+                recent_freq = self.item_recent_frequency.get(it, 0)
+                hist_freq = self.item_historical_frequency.get(it, 1)
+
+                trend = recent_freq / max(hist_freq / (self.current_step / 100 + 1), 1)
+                self.item_access_trend[it] = min(trend, 1.0)
+
+                self.item_recent_frequency[it] = 0
+
     def _get_observation(self) -> np.ndarray:
         state = np.zeros(self.state_size, dtype=np.float32)
 
@@ -164,6 +197,25 @@ class HybridCacheEnv(gym.Env):
         if len(self.request_history) >= 3:
             pattern = [self.request_history[-3], self.request_history[-2], self.request_history[-1]]
             state[18] = 1.0 if self.current_request in pattern else 0.0
+
+        if self.current_request in self.item_last_access_time:
+            time_since_access = self.current_step - self.item_last_access_time[self.current_request]
+            state[19] = min(time_since_access / 100.0, 1.0)
+        else:
+            state[19] = 1.0
+
+        state[20] = self.item_access_trend.get(self.current_request, 0.0)
+
+        avg_recency = 0.0
+        for idx, item in enumerate(cache_items[:5]):
+            if item in self.item_last_access_time:
+                recency = self.current_step - self.item_last_access_time[item]
+                state[21 + idx] = min(recency / 100.0, 1.0)
+            else:
+                state[21 + idx] = 1.0
+
+        for idx, item in enumerate(cache_items[:4]):
+            state[26 + idx] = self.item_access_trend.get(item, 0.0)
 
         return state
 
